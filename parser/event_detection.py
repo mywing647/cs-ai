@@ -1,78 +1,137 @@
 from demoparser2 import DemoParser
-parser = DemoParser("demo/pro/demo_pro_1.dem")
-ticks_df = parser.parse_ticks(["X", "Y","spotted","approximate_spotted_by","pitch","yaw", "shots_fired"])#pitch up_down, yaw left_right
 
+parser = DemoParser("demo/pro/demo_pro_9.dem")
+ticks_df = parser.parse_ticks(["X", "Y","spotted","approximate_spotted_by","pitch","yaw", "shots_fired","death_time"])
 name_list= ticks_df["name"].unique().tolist()
-player_df = ticks_df[ticks_df["name"] == "NiKo"]
 
-def detect_spotted(player_df):
-    player_df["previous"] = player_df["spotted"].shift(1)
-    spotted_events = player_df[(player_df["spotted"] == True) & (player_df["previous"] == False)]
+def detect_kill(player_name):
+    import numpy as np
 
-    spotted_list=[]
-    for i in range(len(spotted_events)):
-        spotted_event=spotted_events["tick"].iloc[i]
-        spotted_list.append(spotted_event)
+    ticks_df = parser.parse_ticks(["shots_fired"])
+    events = dict(parser.parse_events(["player_death"]))
+    player_df = ticks_df[ticks_df["name"] == player_name]
 
-    return spotted_list
+    player_df["previous"]=player_df["shots_fired"].shift(1)
+    shotfire_events = player_df[(player_df["shots_fired"]>0)&(player_df["previous"]==0)]
+    shotfire_list=shotfire_events["tick"].tolist()
+    shot_array = np.array(shotfire_list)
 
-spotted_list = detect_spotted(player_df)
+    death_df = events["player_death"]
+    kill_events = death_df[
+        death_df["attacker_name"] == player_name
+    ]
 
-def detect_aim(player_df,threshold):
+    kill_list = []
+    shot_list=[]
+    shot_array = np.array(shotfire_list)
+
+    for kill_tick in kill_events["tick"]:
+        idx = np.searchsorted(shot_array, kill_tick) - 1
+
+        if idx >= 0:
+            fire_tick = shot_array[idx]
+
+            if kill_tick - fire_tick <= 500:
+                kill_list.append(kill_tick)
+                shot_list.append(fire_tick)
+            
+    return kill_list,shot_list,kill_events
+
+player_name = "NiKo"
+
+kill_list,shot_list,kill_events = detect_kill(player_name)
+# print(shot_list)
+# print(kill_list)
+
+def detect_aim(player_name,shot_list):
+    import numpy as np
+
+    ticks_df = parser.parse_ticks(["pitch","yaw"])
+    player_df = ticks_df[ticks_df["name"] == player_name]
+
     player_df["yaw_change"] = player_df["yaw"].diff()
     player_df["pitch_change"] = player_df["pitch"].diff()
     player_df["aim_speed"]=(player_df["yaw_change"]**2 +player_df["pitch_change"]**2) ** 0.5
-    aim_start_event = player_df[(player_df["aim_speed"].shift(-1) >threshold) & (player_df["aim_speed"].shift(-2) >threshold)&(player_df["aim_speed"] >threshold)]
+    aim_speed = player_df["aim_speed"].to_numpy()
 
-    #print(player_df["aim_speed"].describe())
-
-    count=len(spotted_list)
     aim_start_list=[]
-    for i in range(count-1):
-        tick=spotted_list[i]
-        next_tick=spotted_list[i+1]
-        aim_start_after_spotted=aim_start_event[(aim_start_event["tick"] > tick) & (aim_start_event["tick"] < next_tick)]
-        if not aim_start_after_spotted.empty:
-            aim_start_after_spotted=aim_start_after_spotted.iloc[0]
-            aim_start_list.append(aim_start_after_spotted["tick"])
-
-    last_tick = spotted_list[-1]
-    aim_start_after_last_spotted=aim_start_event[aim_start_event["tick"] > last_tick]
-    if not aim_start_after_last_spotted.empty:
-        aim_start_after_last_spotted=aim_start_after_last_spotted.iloc[0]
-        aim_start_list.append(aim_start_after_last_spotted["tick"])
-
+    for tick in shot_list:
+        for j in range(tick-1, tick-500,-1):
+            if aim_speed[j]>=0.1 and aim_speed[j+1] >=0.1 and aim_speed[j+2] >=0.1 and aim_speed[j-1]<0.1:
+                aim_start_list.append(j)
+                break
+            
     return aim_start_list
+   
+aim_start_list = detect_aim(player_name,shot_list)
+print(aim_start_list)
 
-aim_start_list = detect_aim(player_df)
+def crosshead_eror(player_name,aim_start_list,kill_events):
+    import math
+    import numpy as np
 
-def detect_shot(player_df):
-    count=len(aim_start_list)
-    player_df["previous_shot"] = player_df["shots_fired"].shift(1)
-    shotfire_events = player_df[(player_df["shots_fired"]>player_df["previous_shot"])]
+    ticks_df = parser.parse_ticks(["X","Y","Z","pitch","yaw","ducked"])
+    my_df = ticks_df[ticks_df["name"] == player_name]
 
-    shotfire_list=[]
-    for i in range(count-1):
-        tick=aim_start_list[i]
-        next_tick=aim_start_list[i+1]
+    victim_name = kill_events["user_name"]
 
-        if not shotfire_events.empty:
-            shotfire_after_spotted=shotfire_events[(shotfire_events["tick"] > tick) & (shotfire_events["tick"] < next_tick)]
-            #print(shotfire_after_spotted["tick"])
-            if not shotfire_after_spotted.empty:
-                shotfire_after_spotted=shotfire_after_spotted.iloc[0]
-                shotfire_list.append(shotfire_after_spotted["tick"])
+    crosshead_list=[]
+    for tick in aim_start_list:
+        my_row=my_df[my_df["tick"]==tick]
+        my_x = my_row["X"].values[0]
+        my_y = my_row["Y"].values[0]
+        my_z = my_row["Z"].values[0]
+        yaw=my_row["yaw"].values[0]
+        pitch= my_row["pitch"].values[0]
 
-    last_tick = aim_start_list[-1]
-    shotfire_after_last_aim_start=shotfire_events[shotfire_events["tick"] > last_tick]
-    if not shotfire_after_last_aim_start.empty:
-        shotfire_after_last_aim_start=shotfire_after_last_aim_start.iloc[0]
-        shotfire_list.append(shotfire_after_last_aim_start["tick"])
+        yaw_rad=math.radians(yaw)
+        pitch_rad=math.radians(pitch)
 
-    return shotfire_list
+        crosshead_x = math.cos(pitch_rad) * math.cos(yaw_rad)
+        crosshead_y = math.cos(pitch_rad) * math.sin(yaw_rad)
+        crosshead_z = -math.sin(pitch_rad)
 
-shotfire_list = detect_shot(player_df)
+        victim_name = kill_events["user_name"].iloc[0]
+        victim_row=ticks_df[(ticks_df["tick"]==tick)&(ticks_df["name"]==victim_name)]
+        victim_x=victim_row["X"].iloc[0]
+        victim_y=victim_row["Y"].iloc[0]
+        victim_z=victim_row["Z"].iloc[0]+72
 
-#print(spotted_list)
-#print(aim_start_list)
-#print(shotfire_list)
+        to_head_x =victim_x-my_x
+        to_head_y =victim_y-my_y
+        is_ducked = my_row["ducked"].iloc[0]
+
+        if is_ducked:
+            to_head_z =victim_z-(my_z+46)
+        else:
+            to_head_z =victim_z-(my_z+64)
+
+        head_dist = math.sqrt(to_head_x**2 + to_head_y**2 + to_head_z**2)
+        if head_dist == 0:
+            crosshead_list.append(0)
+            continue
+
+        to_head_x /= head_dist
+        to_head_y /= head_dist
+        to_head_z /= head_dist
+
+        dot = (crosshead_x * to_head_x + crosshead_y * to_head_y + crosshead_z * to_head_z)
+        dot = max(-1, min(1, dot))
+        angle = math.degrees(math.acos(dot))
+        crosshead_list.append(angle)
+
+    valid_errors = [e for e in crosshead_list if e < 30]
+
+    if len(valid_errors) > 0:
+        mean_error = np.mean(valid_errors)   
+        min_error = np.min(valid_errors)     
+        final_error = valid_errors[-1]  
+    return mean_error,min_error,final_error
+
+mean_error,min_error,final_error=crosshead_eror(player_name,aim_start_list,kill_events)
+print(mean_error,min_error,final_error)
+
+
+
+
+
