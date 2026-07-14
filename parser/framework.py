@@ -23,9 +23,7 @@ def build_event_table(player_name,parser):
     
     event_df["reaction_time"] = event_df["fire_tick"] - event_df["aim_start_tick"]
     event_df["spray_time"] = event_df["kill_tick"] - event_df["fire_tick"]
-    event_df["ttk"] = event_df["kill_tick"] - event_df["aim_start_tick"]
     event_df = event_df[event_df["crosshead_error"] < 30]
-    event_df = event_df[event_df["ttk"] < 300]
     event_df = event_df[event_df["reaction_time"] > 0]
     if event_df.empty:
         return pd.DataFrame()
@@ -33,7 +31,6 @@ def build_event_table(player_name,parser):
     crosshead_stats = event_detection.statistic_calculation(event_df["crosshead_error"], "crosshead")
     reaction_stats = event_detection.statistic_calculation(event_df["reaction_time"], "reaction")
     spray_stats = event_detection.statistic_calculation(event_df["spray_time"], "spray")
-    ttk_stats = event_detection.statistic_calculation(event_df["ttk"], "ttk")
     
     statistic_df = pd.concat([crosshead_stats, reaction_stats, spray_stats], axis=1)    
     return statistic_df

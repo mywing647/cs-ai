@@ -1,15 +1,15 @@
-from feature_extraction import feature_extraction
-import traceback
+# from feature_extraction import feature_extraction
+# import traceback
 
-file_path = r"E:\projects\cs-ai\demo\amateur\demo_amateur_1.dem"
+# file_path = r"E:\projects\cs-ai\demo\amateur\demo_amateur_1.dem"
 
-try:
-    df = feature_extraction(file_path, 1)
-    print("no error")
+# try:
+#     df = feature_extraction(file_path, 1)
+#     print("no error")
     
-except Exception as e:
-    print("here is the error：\n")
-    traceback.print_exc()
+# except Exception as e:
+#     print("here is the error：\n")
+#     traceback.print_exc()
 
 # from demoparser2 import DemoParser
 
